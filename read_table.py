@@ -29,7 +29,7 @@ def extract_staff_list(file_path):
     ws = wb.active
     result_rows = []
 
-    for row in ws.iter_rows(max_col=9): 
+    for row in ws.iter_rows(max_col=11): 
         if not row[0].value and not row[6].value:
             continue  # Пропускаємо порожні рядки відразу
 
@@ -62,16 +62,16 @@ def extract_staff_list(file_path):
     return result_rows
 
 if __name__ == "__main__":
-    source_excel = "fresh.xlsx"
+    source_excel = "New040526.xlsx"
     
     try:
         print("Читаємо структуру...")
         structure_data = extract_structure_list(source_excel)
-        save_to_csv("str_fresh.csv", structure_data)
+        save_to_csv("str_new040526.csv", structure_data)
 
         print("Читаємо персонал (це може зайняти час)...")
         staff_data = extract_staff_list(source_excel)
-        save_to_csv("all_fresh.csv", staff_data)
+        save_to_csv("all_new040526.csv", staff_data)
         
     except FileNotFoundError:
         print(f"Помилка: Файл {source_excel} не знайдено.")
