@@ -4,14 +4,12 @@ from openpyxl import load_workbook
 
 
 def clean_phone(value):
-    """Залишає лише цифри або повертає False."""
     if value is None or str(value).strip() == "":
         return False
     cleaned = re.sub(r'[\s\-]', '', str(value))
     return cleaned if cleaned else False
 
 def clean_date(value):
-    """Очищує дату від пробілів або повертає False."""
     if value is None or str(value).strip() == "":
         return False
     return str(value).strip()
@@ -27,8 +25,7 @@ def has_cell_background(cell):
     return "PROBLEM"
 
 def process_excel_to_single_csv():
-    # Реалізація вибору файлів через input() 
-    source_excel = input("Введіть назву Excel файлу (напр. full0506.xlsx): ").strip()
+    source_excel = input("Введіть назву Excel файлу (напр. test_info.xlsx): ").strip()
     if not source_excel:
         print("Помилка: Назва вхідного файлу не може бути порожньою.")
         return
@@ -44,12 +41,12 @@ def process_excel_to_single_csv():
         combined_data = []
         position_counter = 0
 
-        print(f"Починаємо обробку: {source_excel} -> {output_csv}")
+        print(f"Обробка: {source_excel} -> {output_csv}")
 
         for row in ws.iter_rows(max_col=11):
             col1_val = row[0].value
             
-            # --- ВИПРАВЛЕННЯ: Ігноруємо заголовок таблиці ---
+            # Заголовок таблиці
             if col1_val == "№ з/п":
                 continue
             
@@ -64,8 +61,7 @@ def process_excel_to_single_csv():
                 combined_data.append(structure_row)
                 continue
 
-            # 2. Визначення посад (якщо є ПІБ або номер/назва посади)
-            # Додана перевірка col1_val is not None для виключення повністю порожніх рядків
+            # 2. Визначення позицій (якщо є ПІБ або номер/назва)
             is_staff = (col7_val is not None and str(col7_val).strip() != "")
             is_vacant_pos = (isinstance(col1_val, int) or (col2_val is not None and str(col2_val).strip() != ""))
 
