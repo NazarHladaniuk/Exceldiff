@@ -2,150 +2,32 @@ import csv
 import sys
 import logging
 from pathlib import Path
-from collections import defaultdict
-from datetime import datetime
+from collections import defaultdict, Counter
 
 
-# ──────────────────────────────────────────────
-#  Налаштування логування
-# ──────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════
+#  ЛОГУВАННЯ
+# ═══════════════════════════════════════════════════════════
 
-def setup_logger(log_path: str = "employee_diff.log") -> logging.Logger:
+def setup_logger(log_path: str = "info.log") -> logging.Logger:
     logger = logging.getLogger("employee_diff")
     logger.setLevel(logging.DEBUG)
     logger.handlers.clear()
 
     fmt = logging.Formatter("%(asctime)s  [%(levelname)s]  %(message)s",
                             datefmt="%Y-%m-%d %H:%M:%S")
-
-    # консоль
-    ch = logging.StreamHandler(sys.stdout)
-    ch.setLevel(logging.DEBUG)
-    ch.setFormatter(fmt)
-    logger.addHandler(ch)
-
-    # файл
-    fh = logging.FileHandler(log_path, encoding="utf-8")
-    fh.setLevel(logging.DEBUG)
-    fh.setFormatter(fmt)
-    logger.addHandler(fh)
-
+    for handler in [logging.StreamHandler(sys.stdout),
+                    logging.FileHandler(log_path, encoding="utf-8")]:
+        handler.setLevel(logging.DEBUG)
+        handler.setFormatter(fmt)
+        logger.addHandler(handler)
     return logger
 
 
-# ──────────────────────────────────────────────
-#  Читання CSV
-# ──────────────────────────────────────────────
+SEP = "=" * 34
 
-def read_csv(path: str) -> list[list[str]]:
-    """
-    Повертає список рядків (кожен рядок — список str).
-    Перший рядок-заголовок пропускається.
-    Порожні рядки ігноруються.
-    """
-    rows = []
-    with open(path, newline="", encoding="utf-8-sig") as f:
-        reader = csv.reader(f)
-        next(reader, None)          # пропустити заголовок
-        for line_no, row in enumerate(reader, start=2):
-            if not any(cell.strip() for cell in row):
-                continue            # пустий рядок
-            rows.append(row)
-    return rows
-
-
-def col(row: list[str], n: int) -> str:
-    """Повертає значення Col{n} (1-based) або '' якщо колонки немає."""
-    try:
-        return row[n - 1].strip()
-    except IndexError:
-        return ""
-
-
-# ──────────────────────────────────────────────
-#  Допоміжні структури
-# ──────────────────────────────────────────────
-
-def build_index(rows: list[list[str]]) -> dict:
-    """pib → список рядків із таким Col7."""
-    idx: dict[str, list[list[str]]] = defaultdict(list)
-    for row in rows:
-        pib = col(row, 7)
-        if pib:
-            idx[pib].append(row)
-    return idx
-
-
-def find_row(pib: str, emp_id: str,
-             index: dict[str, list[list[str]]]) -> list[str] | None:
-    candidates = index.get(pib, [])
-    if not candidates:
-        return None
-    if len(candidates) == 1:
-        return candidates[0]
-    if emp_id:
-        matched = [r for r in candidates if col(r, 9) == emp_id]
-        if len(matched) == 1:
-            return matched[0]
-    return None
-
-
-# ──────────────────────────────────────────────
-#  Перевірка дублікатів всередині одного файлу
-# ──────────────────────────────────────────────
-
-def check_internal_duplicates(rows: list[list[str]],
-                               label: str,
-                               logger: logging.Logger) -> None:
-    seen_col1: dict[str, list[int]] = defaultdict(list)
-    seen_col7: dict[str, list[int]] = defaultdict(list)
-
-    for i, row in enumerate(rows, start=1):
-        c1 = col(row, 1)
-        c7 = col(row, 7)
-        if c1:
-            seen_col1[c1].append(i)
-        if c7:
-            seen_col7[c7].append(i)
-
-    logger.info(f"=== Перевірка дублікатів у файлі: {label} ===")
-
-    dup_col1 = {k: v for k, v in seen_col1.items() if len(v) > 1}
-    if dup_col1:
-        for val, lines in sorted(dup_col1.items()):
-            logger.warning(
-                f"[ДУБЛІКАТ Col1] ПОРЯДКОВИЙ НОМЕР «{val}» "
-                f"зустрічається {len(lines)} рази (рядки: {lines})"
-            )
-    else:
-        logger.info("[OK] Дублікатів Col1 (ПОРЯДКОВИЙ НОМЕР) не знайдено.")
-
-    dup_col7 = {k: v for k, v in seen_col7.items() if len(v) > 1}
-    if dup_col7:
-        for val, lines in sorted(dup_col7.items()):
-            logger.warning(
-                f"[ДУБЛІКАТ Col7] ПІБ «{val}» "
-                f"зустрічається {len(lines)} рази (рядки: {lines})"
-            )
-    else:
-        logger.info("[OK] Дублікатів Col7 (ПІБ) не знайдено.")
-
-
-# ──────────────────────────────────────────────
-#  Головна функція порівняння
-# ──────────────────────────────────────────────
-
-TRACKED_COLS = {
-    8:  "ПРИМІТКА",
-    9:  "НОМЕР ПРАЦІВНИКА",
-    11: "СТАТУС КОЛЬОРУ КЛІТИНКИ ПІБ",
-}
-
-SEP = "=" * 34  # роздільник секцій
-
-
-def log_section(title: str, messages: list[str], logger: logging.Logger) -> None:
-    """Виводить заголовок секції і всі її повідомлення як WARNING."""
+def log_section(title: str, messages: list, logger: logging.Logger) -> None:
+    """Виводить заголовок секції і всі повідомлення як WARNING."""
     logger.info("")
     logger.info(f"{SEP} {title} {SEP}")
     if messages:
@@ -155,194 +37,424 @@ def log_section(title: str, messages: list[str], logger: logging.Logger) -> None
         logger.info("Змін не виявлено.")
 
 
-def compare_csv(old_path: str,
-                new_path: str,
-                log_path: str = "employee_diff.log") -> None:
+# ═══════════════════════════════════════════════════════════
+#  ЧИТАННЯ CSV
+# ═══════════════════════════════════════════════════════════
+
+def normalize(v) -> str:
+    """Нормалізує значення: None / 'False' / 'false' → ''."""
+    if v is None:
+        return ""
+    s = str(v).strip()
+    return "" if s.lower() == "false" else s
+
+
+def is_structure_row(raw: list) -> bool:
+    """
+    Структурний рядок: Col1 — непорожній текст (не число),
+    решта колонок  — 'False' або порожні.
+    """
+    if not raw:
+        return False
+    c1 = raw[0].strip() if raw[0] else ""
+    if not c1:
+        return False
+    try:
+        float(c1)   # Col1 — число → не структурний рядок
+        return False
+    except ValueError:
+        pass
+    return all(v.strip().lower() in ("false", "") for v in raw[1:])
+
+
+def read_combined_csv(path: str) -> tuple:
+    """
+    Читає об'єднаний CSV.
+
+    Повертає:
+      staff_rows     — записи з непорожнім Col7 (ПІБ), з полем 'subdivision'
+      structure_list — список назв підрозділів по порядку (з повторами)
+      raw_rows       — всі сирі рядки для запису updated_new.csv
+    """
+    staff_rows     = []
+    structure_list = []
+    raw_rows       = []
+    current_sub    = None
+
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        for raw in csv.reader(f):
+            raw_rows.append(raw)          # зберігаємо кожен рядок
+
+            if not any(v.strip() for v in raw):
+                continue                  # порожній рядок — пропускаємо
+
+            if is_structure_row(raw):
+                current_sub = raw[0].strip()
+                structure_list.append(current_sub)
+                continue
+
+            def g(n: int) -> str:
+                return normalize(raw[n - 1]) if len(raw) >= n else ""
+
+            pib = g(7)
+            if not pib:
+                continue                  # вакантна посада — не в staff_rows
+
+            staff_rows.append({
+                'raw':         raw,       # той самий об'єкт, що й у raw_rows
+                'subdivision': current_sub,
+                'col1':  g(1),  'col2':  g(2),  'col3':  g(3),
+                'col4':  g(4),  'col5':  g(5),  'col6':  g(6),
+                'col7':  pib,   'col8':  g(8),  'col9':  g(9),
+                'col10': g(10), 'col11': g(11), 'col12': g(12),
+            })
+
+    return staff_rows, structure_list, raw_rows
+
+
+# ═══════════════════════════════════════════════════════════
+#  ІНДЕКС ПО ПІБ
+# ═══════════════════════════════════════════════════════════
+
+def build_pib_index(staff: list) -> dict:
+    idx = defaultdict(list)
+    for e in staff:
+        idx[e['col7']].append(e)
+    return idx
+
+
+# ═══════════════════════════════════════════════════════════
+#  ПЕРЕВІРКА ДУБЛІКАТІВ
+# ═══════════════════════════════════════════════════════════
+
+_DUP_COLS = {
+    'col1':  'Col1  (ПОРЯДКОВИЙ НОМЕР)',
+    'col7':  'Col7  (ПІБ)',
+    'col9':  'Col9  (ТАБЕЛЬНИЙ НОМЕР)',
+    'col11': 'Col11 (ТЕЛЕФОН)',
+}
+
+def check_duplicates(staff: list, label: str, logger: logging.Logger) -> None:
+    logger.info(f"=== Перевірка дублікатів у файлі: {label} ===")
+    seen = {k: defaultdict(list) for k in _DUP_COLS}
+
+    for i, e in enumerate(staff, start=1):
+        for k in _DUP_COLS:
+            v = e[k]
+            if v:
+                seen[k][v].append(i)
+
+    for k, col_label in _DUP_COLS.items():
+        dups = {v: lines for v, lines in seen[k].items() if len(lines) > 1}
+        if dups:
+            for v, lines in sorted(dups.items()):
+                logger.warning(
+                    f"[ДУБЛІКАТ {k.upper()}] {col_label} «{v}» "
+                    f"зустрічається {len(lines)} рази (записи: {lines})"
+                )
+        else:
+            logger.info(f"[OK] Дублікатів {col_label} не знайдено.")
+
+
+# ═══════════════════════════════════════════════════════════
+#  ЗІСТАВЛЕННЯ ЗАПИСІВ (ПАРИНГ)
+# ═══════════════════════════════════════════════════════════
+
+def build_pairs(pib: str, old_index: dict, new_index: dict) -> list:
+    """
+    Зіставляє записи старого та нового файлів для одного ПІБ.
+    Повертає список: (old_entry | None, new_entry, status)
+
+    status:
+      'ok'                  — однозначне зіставлення
+      'ambiguous_no_col9'   — дублі ПІБ, Col9 відсутній у всіх
+      'ambiguous_with_col9' — дублі ПІБ, Col9 є, але не дав результату
+    """
+    old_cands = old_index.get(pib, [])
+    new_cands = new_index.get(pib, [])
+
+    if not old_cands or not new_cands:
+        return []
+
+    # Простий випадок: по одному з кожного боку
+    if len(old_cands) == 1 and len(new_cands) == 1:
+        return [(old_cands[0], new_cands[0], 'ok')]
+
+    # Кілька записів — спочатку зіставляємо за Col9
+    pairs    = []
+    used_old = set()
+    used_new = set()
+
+    for ni, new_e in enumerate(new_cands):
+        if not new_e['col9']:
+            continue
+        for oi, old_e in enumerate(old_cands):
+            if oi in used_old:
+                continue
+            if old_e['col9'] == new_e['col9']:
+                pairs.append((old_e, new_e, 'ok'))
+                used_old.add(oi)
+                used_new.add(ni)
+                break
+
+    rem_old = [e for i, e in enumerate(old_cands) if i not in used_old]
+    rem_new = [e for i, e in enumerate(new_cands) if i not in used_new]
+
+    if len(rem_old) == 1 and len(rem_new) == 1:
+        has_col9 = rem_old[0]['col9'] or rem_new[0]['col9']
+        status   = 'ambiguous_with_col9' if has_col9 else 'ambiguous_no_col9'
+        pairs.append((rem_old[0], rem_new[0], status))
+    else:
+        for new_e in rem_new:
+            has_col9 = any(e['col9'] for e in rem_old) or new_e['col9']
+            status   = 'ambiguous_with_col9' if has_col9 else 'ambiguous_no_col9'
+            pairs.append((None, new_e, status))
+
+    return pairs
+
+
+# ═══════════════════════════════════════════════════════════
+#  ГОЛОВНА ФУНКЦІЯ
+# ═══════════════════════════════════════════════════════════
+
+# Поля для відстеження змін (окрім Col1/Col5 які мають окрему логіку)
+TRACKED_FIELDS = {
+    'col8':  'Col8  (ПРИМІТКА)',
+    'col9':  'Col9  (ТАБЕЛЬНИЙ НОМЕР)',
+    'col12': 'Col12 (КОЛІР КЛІТИНКИ)',
+}
+
+
+def compare_and_update(old_path: str, new_path: str,
+                        out_csv:  str = "updated_new.csv",
+                        log_path: str = "info.log") -> None:
+
     logger = setup_logger(log_path)
 
     logger.info("=" * 70)
     logger.info(f"СТАРИЙ файл : {old_path}")
     logger.info(f"НОВИЙ  файл : {new_path}")
+    logger.info(f"Вихідний CSV: {out_csv}")
     logger.info(f"Лог         : {log_path}")
     logger.info("=" * 70)
 
-    # ── читання ──────────────────────────────
-    old_rows = read_csv(old_path)
-    new_rows = read_csv(new_path)
-    logger.info(f"Записів у старому файлі: {len(old_rows)}")
-    logger.info(f"Записів у новому  файлі: {len(new_rows)}")
+    # ── читання ──────────────────────────────────────────────
+    old_staff, old_struct, _        = read_combined_csv(old_path)
+    new_staff, new_struct, new_raws = read_combined_csv(new_path)
 
-    # ── внутрішні дублікати ───────────────────
-    check_internal_duplicates(old_rows, f"СТАРИЙ ({old_path})", logger)
-    check_internal_duplicates(new_rows, f"НОВИЙ  ({new_path})", logger)
+    logger.info(f"Працівників у старому файлі: {len(old_staff)}")
+    logger.info(f"Працівників у новому  файлі: {len(new_staff)}")
 
-    # ── індекси ──────────────────────────────
-    old_index = build_index(old_rows)
-    new_index = build_index(new_rows)
+    # ── перевірка дублікатів ─────────────────────────────────
+    check_duplicates(old_staff, f"СТАРИЙ ({old_path})", logger)
+    check_duplicates(new_staff, f"НОВИЙ  ({new_path})", logger)
 
-    old_pibs = set(old_index.keys())
-    new_pibs = set(new_index.keys())
+    # ── зміни структури підрозділів ──────────────────────────
+    logger.info("")
+    logger.info(f"{SEP} [ЗМІНИ СТРУКТУРИ ПІДРОЗДІЛІВ] {SEP}")
+    old_cnt = Counter(old_struct)
+    new_cnt = Counter(new_struct)
+    struct_changes = []
+    for name in sorted(set(old_cnt) | set(new_cnt)):
+        o = old_cnt.get(name, 0)
+        n = new_cnt.get(name, 0)
+        diff = n - o
+        if diff > 0:
+            struct_changes.append(
+                f"[ПІДРОЗДІЛ ДОДАНО]   «{name}»: було {o} → стало {n} (+{diff})"
+            )
+        elif diff < 0:
+            struct_changes.append(
+                f"[ПІДРОЗДІЛ ВИДАЛЕНО] «{name}»: було {o} → стало {n} ({diff})"
+            )
+    if struct_changes:
+        for msg in struct_changes:
+            logger.warning(msg)
+        logger.info(
+            f"Загалом підрозділів: було {len(old_struct)}, стало {len(new_struct)}"
+        )
+    else:
+        logger.info("Структура підрозділів не змінилась.")
+
+    # ── індекси ──────────────────────────────────────────────
+    old_index = build_pib_index(old_staff)
+    new_index = build_pib_index(new_staff)
+
+    old_pibs = set(old_index)
+    new_pibs = set(new_index)
 
     fired         = old_pibs - new_pibs
     new_employees = new_pibs - old_pibs
     common        = old_pibs & new_pibs
 
-    # ──────────────────────────────────────────
-    #  1. ЗВІЛЬНЕНІ
-    # ──────────────────────────────────────────
+    # ── ЗВІЛЬНЕНІ ────────────────────────────────────────────
     logger.info("")
     logger.info("─── ЗВІЛЬНЕНІ ───────────────────────────────────────────")
     if fired:
         for pib in sorted(fired):
-            for row in old_index[pib]:
+            for e in old_index[pib]:
                 logger.warning(
-                    f"[ЗВІЛЬНЕНИЙ] «{pib}» | "
-                    f"Col1={col(row,1)} | Col2={col(row,2)} | "
-                    f"[Col6]={col(row,6)} | Col9={col(row,9)}"
+                    f"[ЗВІЛЬНЕНИЙ] «{pib}» | Col1={e['col1']} | "
+                    f"Посада={e['col2']} | Підрозділ={e['subdivision']} | "
+                    f"Col9={e['col9']}"
                 )
     else:
         logger.info("Звільнених не виявлено.")
 
-    # ──────────────────────────────────────────
-    #  2. НОВІ ПРАЦІВНИКИ
-    # ──────────────────────────────────────────
+    # ── НОВІ ПРАЦІВНИКИ ──────────────────────────────────────
     logger.info("")
     logger.info("─── НОВІ ПРАЦІВНИКИ ─────────────────────────────────────")
     if new_employees:
         for pib in sorted(new_employees):
-            for row in new_index[pib]:
+            for e in new_index[pib]:
                 logger.info(
-                    f"[НОВИЙ ПРАЦІВНИК] «{pib}» | "
-                    f"Col1={col(row,1)} | Col2={col(row,2)} | "
-                    f"[Col6]={col(row,6)} | Col9={col(row,9)}"
+                    f"[НОВИЙ ПРАЦІВНИК] «{pib}» | Col1={e['col1']} | "
+                    f"Посада={e['col2']} | Підрозділ={e['subdivision']} | "
+                    f"Col9={e['col9']}"
                 )
     else:
         logger.info("Нових працівників не виявлено.")
 
-    # ──────────────────────────────────────────
-    #  3. ЗМІНИ У СПІЛЬНИХ ЗАПИСАХ
-    # ──────────────────────────────────────────
+    # ── ЗМІНИ У СПІЛЬНИХ ЗАПИСАХ ─────────────────────────────
+    buf_ambiguous:   list[str] = []
+    buf_subdivision: list[str] = []   # однакова посада, інший підрозділ
+    buf_position:    list[str] = []   # зміна посади / Col1
+    buf_status:      list[str] = []   # зміна Col5
+    buf_field:       list[str] = []   # зміна Col8 / Col9 / Col12
 
-    buf_ambiguous: list[str] = []  # неоднозначності
-    buf_position:  list[str] = []  # [ЗМІНА ПОСАДИ]  — Col1
-    buf_status:    list[str] = []  # [ЗМІНА СТАТУСУ] — Col6
-    buf_field:     list[str] = []  # [ЗМІНА ПОЛЯ]    — Col8 / Col9 / Col11
+    # id(raw) → (col10, col11) для оновлення CSV
+    update_map: dict[int, tuple] = {}
 
     for pib in sorted(common):
-        old_candidates = old_index[pib]
-        new_candidates = new_index[pib]
+        for old_e, new_e, status in build_pairs(pib, old_index, new_index):
 
-        # неоднозначна ситуація: кілька записів з обох сторін
-        if len(old_candidates) > 1 and len(new_candidates) > 1:
-            buf_ambiguous.append(
-                f"[НЕОДНОЗНАЧНІСТЬ] ПІБ «{pib}» має {len(old_candidates)} записів "
-                f"у старому і {len(new_candidates)} у новому файлі. "
-                f"Автоматичне зіставлення неможливе — перевірте вручну."
-            )
-            continue
-
-        # зіставляємо пари old ↔ new
-        pairs: list[tuple[list[str], list[str]]] = []
-
-        if len(old_candidates) == 1 and len(new_candidates) == 1:
-            pairs = [(old_candidates[0], new_candidates[0])]
-
-        elif len(old_candidates) == 1 and len(new_candidates) > 1:
-            emp_id = col(old_candidates[0], 9)
-            matched_new = ([r for r in new_candidates if col(r, 9) == emp_id]
-                           if emp_id else [])
-            if len(matched_new) == 1:
-                pairs = [(old_candidates[0], matched_new[0])]
-            else:
+            # ── неоднозначні випадки ─────────────────────────
+            if status == 'ambiguous_no_col9':
                 buf_ambiguous.append(
-                    f"[НЕОДНОЗНАЧНІСТЬ] ПІБ «{pib}» — 1 старий запис, "
-                    f"{len(new_candidates)} нових. Уточнення через Col9 не дало "
-                    f"однозначного результату. Перевірте вручну."
+                    f"[НЕОДНОЗНАЧНІСТЬ — БЕЗ ТАБЕЛЬНОГО] ПІБ «{pib}» — "
+                    f"кілька записів в старому файлі, Col9 відсутній у всіх. "
+                    f"Col10/Col11 не скопійовано. Перевірте вручну."
                 )
                 continue
 
-        elif len(old_candidates) > 1 and len(new_candidates) == 1:
-            emp_id = col(new_candidates[0], 9)
-            matched_old = ([r for r in old_candidates if col(r, 9) == emp_id]
-                           if emp_id else [])
-            if len(matched_old) == 1:
-                pairs = [(matched_old[0], new_candidates[0])]
-            else:
+            if status == 'ambiguous_with_col9':
                 buf_ambiguous.append(
-                    f"[НЕОДНОЗНАЧНІСТЬ] ПІБ «{pib}» — {len(old_candidates)} старих "
-                    f"записів, 1 новий. Уточнення через Col9 не дало однозначного "
-                    f"результату. Перевірте вручну."
+                    f"[НЕОДНОЗНАЧНІСТЬ] ПІБ «{pib}» — "
+                    f"кілька записів, Col9 не дав однозначного результату. "
+                    f"Col10/Col11 не скопійовано. Перевірте вручну."
                 )
                 continue
 
-        # аналізуємо кожну пару — кладемо у відповідний буфер
-        for old_row, new_row in pairs:
+            if old_e is None:
+                continue
 
-            old_c1, new_c1 = col(old_row, 1), col(new_row, 1)
-            if old_c1 != new_c1:
-                buf_position.append(
-                    f"[ЗМІНА ПОСАДИ] «{pib}» | "
-                    f"Col1: {old_c1!r} → {new_c1!r} | "
-                    f"Стара посада (Col2): {col(old_row,2)!r} | "
-                    f"Нова  посада (Col2): {col(new_row,2)!r}"
-                )
+            # ── копіюємо Col10 / Col11 зі старого файлу ─────
+            if old_e['col10'] or old_e['col11']:
+                update_map[id(new_e['raw'])] = (old_e['col10'], old_e['col11'])
 
-            old_st, new_st = col(old_row, 6), col(new_row, 6)
-            if old_st != new_st:
-                buf_status.append(
-                    f"[ЗМІНА СТАТУСУ] «{pib}» | "
-                    f"Статус (Col6): {old_st!r} → {new_st!r}"
-                )
+            # ── зміна посади або підрозділу ──────────────────
+            if old_e['col1'] != new_e['col1']:
+                same_pos = (old_e['col2'] == new_e['col2'])
+                same_sub = (old_e['subdivision'] == new_e['subdivision'])
 
-            for cn, cname in TRACKED_COLS.items():
-                old_val, new_val = col(old_row, cn), col(new_row, cn)
-                if old_val != new_val:
-                    buf_field.append(
-                        f"[ЗМІНА ПОЛЯ] «{pib}» | "
-                        f"Col{cn} ({cname}): {old_val!r} → {new_val!r}"
+                if same_pos and not same_sub:
+                    # та сама назва посади — але інший підрозділ
+                    buf_subdivision.append(
+                        f"[ЗМІНА ПІДРОЗДІЛУ] «{pib}» | "
+                        f"Посада (Col2): {new_e['col2']!r} (незмінна) | "
+                        f"Підрозділ: {old_e['subdivision']!r} → "
+                        f"{new_e['subdivision']!r} | "
+                        f"Col1: {old_e['col1']!r} → {new_e['col1']!r}"
+                    )
+                else:
+                    buf_position.append(
+                        f"[ЗМІНА ПОСАДИ] «{pib}» | "
+                        f"Col1: {old_e['col1']!r} → {new_e['col1']!r} | "
+                        f"Стара посада: {old_e['col2']!r} | "
+                        f"Нова  посада: {new_e['col2']!r} | "
+                        f"Підрозділ: {old_e['subdivision']!r} → "
+                        f"{new_e['subdivision']!r}"
                     )
 
-    # ── виводимо по секціях із заголовками ───
+            # ── зміна статусу (Col5) ─────────────────────────
+            if old_e['col5'] != new_e['col5']:
+                buf_status.append(
+                    f"[ЗМІНА СТАТУСУ] «{pib}» | "
+                    f"Col5: {old_e['col5']!r} → {new_e['col5']!r}"
+                )
+
+            # ── решта відстежуваних полів ────────────────────
+            for key, label in TRACKED_FIELDS.items():
+                if old_e[key] != new_e[key]:
+                    buf_field.append(
+                        f"[ЗМІНА ПОЛЯ] «{pib}» | "
+                        f"{label}: {old_e[key]!r} → {new_e[key]!r}"
+                    )
+
+    # ── виводимо по секціях із заголовками ───────────────────
     logger.info("")
     logger.info("─── ЗМІНИ У ЗАПИСАХ ─────────────────────────────────────")
 
-    if not any([buf_ambiguous, buf_position, buf_status, buf_field]):
+    if not any([buf_ambiguous, buf_subdivision, buf_position, buf_status, buf_field]):
         logger.info("Змін у спільних записах не виявлено.")
     else:
         if buf_ambiguous:
-            log_section("[НЕОДНОЗНАЧНОСТІ]", buf_ambiguous, logger)
-        log_section("[ЗМІНИ ПОСАДИ]",  buf_position, logger)
-        log_section("[ЗМІНИ СТАТУСУ]", buf_status,   logger)
-        log_section("[ЗМІНИ ПОЛЯ]",    buf_field,     logger)
+            log_section("[НЕОДНОЗНАЧНОСТІ]",  buf_ambiguous,   logger)
+        log_section("[ЗМІНИ ПІДРОЗДІЛУ]",     buf_subdivision, logger)
+        log_section("[ЗМІНИ ПОСАДИ]",         buf_position,    logger)
+        log_section("[ЗМІНИ СТАТУСУ]",        buf_status,      logger)
+        log_section("[ЗМІНИ ПОЛЯ]",           buf_field,       logger)
 
     logger.info("")
     logger.info("=" * 70)
     logger.info("Порівняння завершено.")
     logger.info("=" * 70)
 
+    # ── запис updated_new.csv ─────────────────────────────────
+    _write_updated_csv(new_raws, update_map, out_csv)
+    logger.info(f"Збережено: {out_csv}")
 
-# ──────────────────────────────────────────────
-#  Точка входу
-# ──────────────────────────────────────────────
+
+def _write_updated_csv(raw_rows: list, update_map: dict, out_path: str) -> None:
+    """
+    Записує updated_new.csv — повна копія new.csv, але з заповненими
+    Col10 та Col11 там де вдалося знайти дані в старому файлі.
+    """
+    with open(out_path, mode="w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f)
+        for raw in raw_rows:
+            row_id = id(raw)
+            if row_id in update_map:
+                updated = list(raw)
+                col10, col11 = update_map[row_id]
+                while len(updated) < 11:
+                    updated.append("")
+                if col10:
+                    updated[9]  = col10   # Col10 = індекс 9
+                if col11:
+                    updated[10] = col11   # Col11 = індекс 10
+                writer.writerow(updated)
+            else:
+                writer.writerow(raw)
+
+
+# ═══════════════════════════════════════════════════════════
+#  ТОЧКА ВХОДУ
+# ═══════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    print("=== Порівняння CSV-файлів працівників ===")
-    print("Файли мають бути в одній папці зі скриптом,")
-    print("або вкажіть повний шлях до файлу.\n")
+    print("=== Порівняння CSV-файлів працівників ===\n")
 
     old_file = input("Назва СТАРОГО CSV-файлу: ").strip()
     new_file = input("Назва НОВОГО  CSV-файлу: ").strip()
-    log_file = input("Назва лог-файлу [Enter = employee_diff.log]: ").strip()
+    out_file = (input("Назва вихідного CSV    [Enter = updated_new.csv]: ").strip()
+                or "updated_new.csv")
+    log_file = (input("Назва лог-файлу        [Enter = info.log]: ").strip()
+                or "info.log")
 
-    if not log_file:
-        log_file = "employee_diff.log"
+    for f in [old_file, new_file]:
+        if not Path(f).exists():
+            print(f"Помилка: файл «{f}» не знайдено.")
+            sys.exit(1)
 
-    if not Path(old_file).exists():
-        print(f"Помилка: файл «{old_file}» не знайдено.")
-        sys.exit(1)
-
-    if not Path(new_file).exists():
-        print(f"Помилка: файл «{new_file}» не знайдено.")
-        sys.exit(1)
-
-    compare_csv(old_file, new_file, log_file)
+    compare_and_update(old_file, new_file, out_file, log_file)
