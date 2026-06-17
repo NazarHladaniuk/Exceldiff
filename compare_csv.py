@@ -319,7 +319,7 @@ def compare_and_update(old_path: str, new_path: str,
     buf_ambiguous:   list[str] = []
     buf_subdivision: list[str] = []   # однакова посада, інший підрозділ
     buf_position:    list[str] = []   # зміна посади / Col1
-    buf_status:      list[str] = []   # зміна Col5
+    buf_status:      list[str] = []   # зміна Col6
     buf_field:       list[str] = []   # зміна Col8 / Col9 / Col12
 
     # id(raw) → (col10, col11) для оновлення CSV
@@ -376,11 +376,11 @@ def compare_and_update(old_path: str, new_path: str,
                         f"{new_e['subdivision']!r}"
                     )
 
-            # ── зміна статусу (Col5) ─────────────────────────
-            if old_e['col5'] != new_e['col5']:
+            # ── зміна статусу (Col6) ─────────────────────────
+            if old_e['col6'] != new_e['col6']:
                 buf_status.append(
                     f"[ЗМІНА СТАТУСУ] «{pib}» | "
-                    f"Col5: {old_e['col5']!r} → {new_e['col5']!r}"
+                    f"Col6: {old_e['col6']!r} → {new_e['col6']!r}"
                 )
 
             # ── решта відстежуваних полів ────────────────────
