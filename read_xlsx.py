@@ -24,15 +24,19 @@ def has_cell_background(cell):
         return "Ok"
     return "PROBLEM"
 
-def process_excel_to_single_csv():
-    source_excel = input("Введіть назву Excel файлу (напр. test_info.xlsx): ").strip()
+def process_excel_to_single_csv(source_excel=None, output_csv=None):
+    # Якщо аргументи не передані (запуск вручну), запитуємо у користувача
+    if not source_excel:
+        source_excel = input("Введіть назву Excel файлу (напр. test_info.xlsx): ").strip()
+    
     if not source_excel:
         print("Помилка: Назва вхідного файлу не може бути порожньою.")
-        return
+        return False # Для обробки в main.py
 
-    output_csv = input("Назва результуючого CSV файлу [Enter = test.csv]: ").strip()
     if not output_csv:
-        output_csv = "test.csv"
+        output_csv = input("Назва результуючого CSV файлу [Enter = test.csv]: ").strip()
+        if not output_csv:
+            output_csv = "test.csv"
 
     try:
         wb = load_workbook(source_excel, data_only=True)
@@ -92,6 +96,7 @@ def process_excel_to_single_csv():
             writer.writerows(combined_data)
 
         print(f"\nУспішно! Створено файл '{output_csv}' з {len(combined_data)} рядками.")
+        return True
 
     except FileNotFoundError:
         print(f"Помилка: Файл '{source_excel}' не знайдено.")
