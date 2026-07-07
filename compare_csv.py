@@ -296,7 +296,7 @@ def compare_and_update(old_path: str, new_path: str,
                 logger.warning(
                     f"[ЗВІЛЬНЕНИЙ] «{pib}» | Col1={e['col1']} | "
                     f"Посада={e['col2']} | Підрозділ={e['subdivision']} | "
-                    f"Col9={e['col9']}"
+                    f"Col6={e['col6']}"
                 )
     else:
         logger.info("Звільнених не виявлено.")
@@ -310,7 +310,7 @@ def compare_and_update(old_path: str, new_path: str,
                 logger.info(
                     f"[НОВИЙ ПРАЦІВНИК] «{pib}» | Col1={e['col1']} | "
                     f"Посада={e['col2']} | Підрозділ={e['subdivision']} | "
-                    f"Col9={e['col9']}"
+                    f"Col6={e['col6']}"
                 )
     else:
         logger.info("Нових працівників не виявлено.")
